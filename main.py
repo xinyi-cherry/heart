@@ -9,7 +9,7 @@ from typing import Optional
 from bleak import BleakClient, BleakScanner
 from bleak.backends.device import BLEDevice
 from PySide6.QtCore import QObject, QThread, QTimer, Qt, Signal
-from PySide6.QtGui import QColor, QFont
+from PySide6.QtGui import QColor, QFont, QIcon, QPainter, QPainterPath, QPen, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
     QFileDialog,
@@ -34,7 +34,7 @@ from PySide6.QtWidgets import (
 
 HR_SERVICE_UUID = "0000180d-0000-1000-8000-00805f9b34fb"
 HR_MEASUREMENT_UUID = "00002a37-0000-1000-8000-00805f9b34fb"
-APP_NAME = "Heart Rate Band Logger"
+APP_NAME = "心率助手"
 AUTO_SCAN_INTERVAL_MS = 5000
 AUTO_SCAN_TIMEOUT_SECONDS = 1.2
 
@@ -118,6 +118,42 @@ def default_output_file() -> str:
     if documents.exists():
         return str(documents / "heart_rate_log.txt")
     return str(Path.home() / "heart_rate_log.txt")
+
+
+def create_app_icon() -> QIcon:
+    pixmap = QPixmap(256, 256)
+    pixmap.fill(Qt.GlobalColor.transparent)
+
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+    background = QPainterPath()
+    background.addRoundedRect(18, 18, 220, 220, 48, 48)
+    painter.fillPath(background, QColor("#1455d9"))
+
+    heart = QPainterPath()
+    heart.moveTo(128, 196)
+    heart.cubicTo(46, 128, 54, 68, 99, 62)
+    heart.cubicTo(119, 59, 130, 73, 128, 91)
+    heart.cubicTo(126, 73, 137, 59, 157, 62)
+    heart.cubicTo(202, 68, 210, 128, 128, 196)
+    painter.fillPath(heart, QColor("#ffffff"))
+
+    pulse_pen = QPen(QColor("#22c55e"), 13)
+    pulse_pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+    pulse_pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+    painter.setPen(pulse_pen)
+    pulse = QPainterPath()
+    pulse.moveTo(62, 132)
+    pulse.lineTo(94, 132)
+    pulse.lineTo(110, 101)
+    pulse.lineTo(132, 157)
+    pulse.lineTo(149, 124)
+    pulse.lineTo(194, 124)
+    painter.drawPath(pulse)
+
+    painter.end()
+    return QIcon(pixmap)
 
 
 class ScanWorker(QObject):
@@ -245,7 +281,8 @@ class HeartRateWorker(QObject):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Heart Rate Band Logger")
+        self.setWindowTitle(APP_NAME)
+        self.setWindowIcon(create_app_icon())
         self.resize(1080, 720)
         self.scan_thread: Optional[QThread] = None
         self.scan_worker: Optional[ScanWorker] = None
@@ -275,9 +312,9 @@ class MainWindow(QMainWindow):
 
         title_row = QHBoxLayout()
         title_box = QVBoxLayout()
-        title = QLabel("智能手环心率记录器")
+        title = QLabel("心率助手")
         title.setObjectName("Title")
-        subtitle = QLabel("搜索 BLE 设备，连接标准心率服务，并将数据写入文本文件")
+        subtitle = QLabel("搜索 BLE 设备，连接标准心率服务，并将数据写入输出文件")
         subtitle.setObjectName("Subtitle")
         title_box.addWidget(title)
         title_box.addWidget(subtitle)
@@ -362,7 +399,7 @@ class MainWindow(QMainWindow):
         self.suffix_edit = QLineEdit("")
         self.suffix_edit.setPlaceholderText("例如 ;")
 
-        layout.addWidget(QLabel("文本文件"), 0, 0)
+        layout.addWidget(QLabel("输出文件"), 0, 0)
         layout.addLayout(file_row, 0, 1)
         layout.addWidget(QLabel("前缀"), 1, 0)
         layout.addWidget(self.prefix_edit, 1, 1)
@@ -371,7 +408,7 @@ class MainWindow(QMainWindow):
 
         self.preview_label = QLabel()
         self.preview_label.setObjectName("Preview")
-        layout.addWidget(QLabel("预览"), 3, 0)
+        layout.addWidget(QLabel("输出预览"), 3, 0)
         layout.addWidget(self.preview_label, 3, 1)
 
         self.prefix_edit.textChanged.connect(self.update_preview)
@@ -554,7 +591,7 @@ class MainWindow(QMainWindow):
     def choose_output_file(self) -> None:
         path, _ = QFileDialog.getSaveFileName(
             self,
-            "选择输出文本文件",
+            "选择输出文件",
             self.file_edit.text(),
             "Text Files (*.txt);;All Files (*)",
         )
@@ -661,7 +698,7 @@ class MainWindow(QMainWindow):
             return
         output_file = self.file_edit.text().strip()
         if not output_file:
-            QMessageBox.warning(self, "输出文件为空", "请选择或填写一个文本输出文件。")
+            QMessageBox.warning(self, "输出文件为空", "请选择或填写一个输出文件。")
             return
 
         self.auto_scan_timer.stop()
@@ -756,6 +793,7 @@ class MainWindow(QMainWindow):
 def main() -> int:
     app = QApplication(sys.argv)
     app.setApplicationName(APP_NAME)
+    app.setWindowIcon(create_app_icon())
     font = QFont()
     font.setFamilies(["Inter", "Segoe UI", "PingFang SC", "Microsoft YaHei", "Arial"])
     app.setFont(font)

@@ -66,8 +66,8 @@ if sys.platform == "darwin":
         icon=None,
         bundle_identifier="com.example.heart-rate-band-logger",
         info_plist={
-            "CFBundleName": "Heart Rate Band Logger",
-            "CFBundleDisplayName": "Heart Rate Band Logger",
+            "CFBundleName": "心率助手",
+            "CFBundleDisplayName": "心率助手",
             "NSBluetoothAlwaysUsageDescription": "用于搜索并连接智能手环，读取标准蓝牙心率广播。",
             "NSBluetoothPeripheralUsageDescription": "用于搜索并连接智能手环，读取标准蓝牙心率广播。",
         },

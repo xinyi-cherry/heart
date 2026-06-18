@@ -43,17 +43,17 @@ def build(clean: bool) -> Path:
         artifact_source = DIST / APP_NAME
 
     if not artifact_source.exists():
-        raise FileNotFoundError(f"未找到打包产物: {artifact_source}")
+        raise FileNotFoundError(f"Build artifact not found: {artifact_source}")
 
     package = DIST / f"{APP_NAME}-{suffix}.zip"
     zip_dir(artifact_source, package)
-    print(f"打包完成: {package}")
+    print(f"Package created: {package}")
     return package
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Build distributable desktop packages.")
-    parser.add_argument("--no-clean", action="store_true", help="保留已有 build/dist 目录")
+    parser.add_argument("--no-clean", action="store_true", help="Keep existing build/dist directories")
     args = parser.parse_args()
     build(clean=not args.no_clean)
     return 0
