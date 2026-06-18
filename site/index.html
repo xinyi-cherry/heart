@@ -1,0 +1,576 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>心率助手 - 智能手环心率输出工具</title>
+    <meta
+      name="description"
+      content="心率助手是一款跨平台桌面工具，用于连接智能手环的蓝牙心率广播，并把实时心率写入输出文件。"
+    />
+    <style>
+      :root {
+        --ink: #102033;
+        --muted: #64748b;
+        --line: #dbe4ef;
+        --paper: #ffffff;
+        --soft: #f5f8fc;
+        --blue: #165dff;
+        --green: #16a34a;
+        --coral: #ef6f5e;
+        --gold: #b7791f;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        scroll-behavior: smooth;
+      }
+
+      body {
+        margin: 0;
+        color: var(--ink);
+        background: var(--paper);
+        font-family:
+          Inter, "Segoe UI", "PingFang SC", "Microsoft YaHei", Arial, sans-serif;
+        line-height: 1.6;
+      }
+
+      a {
+        color: inherit;
+        text-decoration: none;
+      }
+
+      .nav {
+        position: fixed;
+        inset: 0 0 auto;
+        z-index: 20;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 18px 5vw;
+        color: #fff;
+      }
+
+      .brand {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        font-weight: 800;
+      }
+
+      .mark {
+        display: grid;
+        width: 34px;
+        height: 34px;
+        place-items: center;
+        border-radius: 8px;
+        background: #fff;
+        color: var(--green);
+        font-weight: 900;
+      }
+
+      .nav-links {
+        display: flex;
+        align-items: center;
+        gap: 24px;
+        font-size: 14px;
+      }
+
+      .hero {
+        position: relative;
+        min-height: 92vh;
+        display: grid;
+        align-items: center;
+        overflow: hidden;
+        color: #fff;
+        background: #0b1626;
+      }
+
+      .hero::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background:
+          linear-gradient(90deg, rgba(6, 17, 31, 0.9) 0%, rgba(6, 17, 31, 0.72) 42%, rgba(6, 17, 31, 0.24) 100%),
+          url("assets/hero-heart-assistant.png") center / cover no-repeat;
+      }
+
+      .hero-inner {
+        position: relative;
+        z-index: 1;
+        width: min(1160px, 90vw);
+        margin: 0 auto;
+        padding: 120px 0 70px;
+      }
+
+      .eyebrow {
+        width: fit-content;
+        margin: 0 0 20px;
+        padding: 7px 12px;
+        border: 1px solid rgba(255, 255, 255, 0.22);
+        border-radius: 6px;
+        color: #c7f9df;
+        font-size: 14px;
+        font-weight: 700;
+      }
+
+      h1 {
+        max-width: 650px;
+        margin: 0;
+        font-size: clamp(44px, 7vw, 86px);
+        line-height: 1.03;
+        letter-spacing: 0;
+      }
+
+      .hero-copy {
+        max-width: 620px;
+        margin: 24px 0 0;
+        color: #d9e5f5;
+        font-size: 20px;
+      }
+
+      .actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        margin-top: 34px;
+      }
+
+      .button {
+        display: inline-flex;
+        min-height: 46px;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        border-radius: 6px;
+        padding: 0 18px;
+        font-weight: 800;
+      }
+
+      .button.primary {
+        background: var(--green);
+        color: #fff;
+      }
+
+      .button.secondary {
+        border: 1px solid rgba(255, 255, 255, 0.32);
+        color: #fff;
+      }
+
+      .hero-stats {
+        display: grid;
+        max-width: 620px;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 12px;
+        margin-top: 58px;
+      }
+
+      .stat {
+        border-left: 3px solid var(--green);
+        padding-left: 14px;
+      }
+
+      .stat strong {
+        display: block;
+        font-size: 24px;
+      }
+
+      .stat span {
+        color: #bdd0e8;
+        font-size: 14px;
+      }
+
+      main {
+        background: var(--paper);
+      }
+
+      section {
+        padding: 82px 5vw;
+      }
+
+      .section-inner {
+        width: min(1160px, 100%);
+        margin: 0 auto;
+      }
+
+      .section-title {
+        max-width: 740px;
+        margin-bottom: 34px;
+      }
+
+      h2 {
+        margin: 0;
+        font-size: clamp(30px, 4vw, 46px);
+        line-height: 1.16;
+        letter-spacing: 0;
+      }
+
+      .section-title p {
+        margin: 14px 0 0;
+        color: var(--muted);
+        font-size: 18px;
+      }
+
+      .feature-grid {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 14px;
+      }
+
+      .feature {
+        min-height: 190px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 22px;
+        background: var(--paper);
+      }
+
+      .feature b,
+      .download-card b {
+        display: block;
+        margin-bottom: 10px;
+        font-size: 18px;
+      }
+
+      .feature p,
+      .download-card p,
+      .step p {
+        margin: 0;
+        color: var(--muted);
+      }
+
+      .download-section {
+        background: var(--soft);
+      }
+
+      .download-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 16px;
+      }
+
+      .download-card {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 22px;
+        background: #fff;
+      }
+
+      .platform {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 16px;
+      }
+
+      .platform-icon {
+        display: grid;
+        width: 42px;
+        height: 42px;
+        place-items: center;
+        border-radius: 8px;
+        background: #edf4ff;
+        color: var(--blue);
+        font-weight: 900;
+      }
+
+      .download-card .button {
+        width: 100%;
+        margin-top: 20px;
+        background: var(--ink);
+        color: #fff;
+      }
+
+      .tutorial {
+        display: grid;
+        grid-template-columns: 1.05fr 0.95fr;
+        gap: 34px;
+        align-items: center;
+      }
+
+      .video-panel {
+        position: relative;
+        aspect-ratio: 16 / 9;
+        overflow: hidden;
+        border-radius: 8px;
+        background:
+          linear-gradient(rgba(16, 32, 51, 0.2), rgba(16, 32, 51, 0.64)),
+          url("assets/hero-heart-assistant.png") center / cover no-repeat;
+      }
+
+      .play {
+        position: absolute;
+        inset: 50% auto auto 50%;
+        display: grid;
+        width: 78px;
+        height: 78px;
+        place-items: center;
+        border: 2px solid rgba(255, 255, 255, 0.82);
+        border-radius: 50%;
+        transform: translate(-50%, -50%);
+        background: rgba(255, 255, 255, 0.18);
+        color: #fff;
+        font-size: 28px;
+      }
+
+      .steps {
+        display: grid;
+        gap: 14px;
+      }
+
+      .step {
+        display: grid;
+        grid-template-columns: 42px 1fr;
+        gap: 14px;
+        align-items: start;
+      }
+
+      .step-number {
+        display: grid;
+        width: 42px;
+        height: 42px;
+        place-items: center;
+        border-radius: 8px;
+        background: #fef3c7;
+        color: var(--gold);
+        font-weight: 900;
+      }
+
+      .note {
+        margin-top: 28px;
+        border-left: 4px solid var(--coral);
+        padding: 14px 16px;
+        background: #fff7f5;
+        color: #803427;
+      }
+
+      footer {
+        padding: 34px 5vw;
+        border-top: 1px solid var(--line);
+        color: var(--muted);
+        text-align: center;
+      }
+
+      @media (max-width: 860px) {
+        .nav {
+          position: absolute;
+        }
+
+        .nav-links {
+          display: none;
+        }
+
+        .hero {
+          min-height: auto;
+        }
+
+        .hero::before {
+          background:
+            linear-gradient(180deg, rgba(6, 17, 31, 0.94) 0%, rgba(6, 17, 31, 0.74) 100%),
+            url("assets/hero-heart-assistant.png") center / cover no-repeat;
+        }
+
+        .hero-inner {
+          padding-top: 110px;
+        }
+
+        .hero-copy {
+          font-size: 17px;
+        }
+
+        .hero-stats,
+        .feature-grid,
+        .download-grid,
+        .tutorial {
+          grid-template-columns: 1fr;
+        }
+
+        section {
+          padding: 58px 5vw;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <nav class="nav" aria-label="主导航">
+      <a class="brand" href="#">
+        <span class="mark">HR</span>
+        <span>心率助手</span>
+      </a>
+      <div class="nav-links">
+        <a href="#features">功能</a>
+        <a href="#downloads">下载</a>
+        <a href="#tutorial">教程</a>
+        <a href="https://github.com/xinyi-cherry/heart">GitHub</a>
+      </div>
+    </nav>
+
+    <header class="hero">
+      <div class="hero-inner">
+        <p class="eyebrow">跨平台 BLE 心率输出工具</p>
+        <h1>心率助手</h1>
+        <p class="hero-copy">
+          连接智能手环或运动手表的标准蓝牙心率广播，将实时心率稳定写入输出文件，适合直播、训练记录和桌面自动化场景。
+        </p>
+        <div class="actions">
+          <a class="button primary" href="#downloads">下载最新版</a>
+          <a class="button secondary" id="hero-video-link" href="#tutorial">观看使用教程</a>
+        </div>
+        <div class="hero-stats" aria-label="产品特点">
+          <div class="stat">
+            <strong>3</strong>
+            <span>Windows / macOS / Linux</span>
+          </div>
+          <div class="stat">
+            <strong>BLE</strong>
+            <span>标准 Heart Rate Service</span>
+          </div>
+          <div class="stat">
+            <strong>5 秒</strong>
+            <span>自动刷新附近设备</span>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <main>
+      <section id="features">
+        <div class="section-inner">
+          <div class="section-title">
+            <h2>把手环心率变成一个稳定可用的桌面数据源</h2>
+            <p>无需安装 Python。打开软件，开启手环心率广播，选择设备后即可把心率写入文件。</p>
+          </div>
+          <div class="feature-grid">
+            <article class="feature">
+              <b>自动发现设备</b>
+              <p>按手环名称、标准心率服务和信号质量进行排序，减少在一堆蓝牙设备里寻找的时间。</p>
+            </article>
+            <article class="feature">
+              <b>覆盖写入输出</b>
+              <p>每次收到新心率都会覆盖输出文件，方便 OBS、脚本和其他工具读取最新值。</p>
+            </article>
+            <article class="feature">
+              <b>可定制格式</b>
+              <p>支持前缀和后缀，例如输出为 HR=72;，直接适配已有文本模板。</p>
+            </article>
+            <article class="feature">
+              <b>实时状态反馈</b>
+              <p>桌面界面显示当前心率、连接状态、扫描结果和运行日志，排查更直观。</p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="download-section" id="downloads">
+        <div class="section-inner">
+          <div class="section-title">
+            <h2>选择你的平台</h2>
+            <p>下载链接会自动指向 GitHub 最新发布版本。如果最新 release 还没有对应平台资产，会跳转到发布页。</p>
+          </div>
+          <div class="download-grid">
+            <article class="download-card">
+              <div class="platform">
+                <div>
+                  <b>Windows</b>
+                  <p>解压 zip 后运行程序。</p>
+                </div>
+                <span class="platform-icon">Win</span>
+              </div>
+              <a class="button download-link" data-platform="windows" href="https://github.com/xinyi-cherry/heart/releases/latest">下载 Windows 版</a>
+            </article>
+            <article class="download-card">
+              <div class="platform">
+                <div>
+                  <b>macOS</b>
+                  <p>首次运行时允许蓝牙权限。</p>
+                </div>
+                <span class="platform-icon">Mac</span>
+              </div>
+              <a class="button download-link" data-platform="darwin" href="https://github.com/xinyi-cherry/heart/releases/latest">下载 macOS 版</a>
+            </article>
+            <article class="download-card">
+              <div class="platform">
+                <div>
+                  <b>Linux</b>
+                  <p>需要系统蓝牙栈支持 BLE。</p>
+                </div>
+                <span class="platform-icon">Lin</span>
+              </div>
+              <a class="button download-link" data-platform="linux" href="https://github.com/xinyi-cherry/heart/releases/latest">下载 Linux 版</a>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section id="tutorial">
+        <div class="section-inner tutorial">
+          <a class="video-panel" id="tutorial-video-card" href="https://github.com/xinyi-cherry/heart#手环设置" aria-label="打开使用教程视频">
+            <span class="play">▶</span>
+          </a>
+          <div>
+            <div class="section-title">
+              <h2>使用教程</h2>
+              <p>先开启手环的心率广播功能，再回到心率助手连接设备。</p>
+            </div>
+            <div class="steps">
+              <div class="step">
+                <span class="step-number">1</span>
+                <p>在手环或官方 App 中开启“心率广播”“蓝牙心率广播”或“第三方设备连接”。</p>
+              </div>
+              <div class="step">
+                <span class="step-number">2</span>
+                <p>打开心率助手，等待自动刷新设备列表，选择推荐度高的手环。</p>
+              </div>
+              <div class="step">
+                <span class="step-number">3</span>
+                <p>选择输出文件并点击连接，心率值会持续覆盖写入该文件。</p>
+              </div>
+            </div>
+            <p class="note">教程视频链接可在页面脚本中的 TUTORIAL_VIDEO_URL 替换为真实视频地址。</p>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      心率助手 · 基于标准蓝牙 Heart Rate Service · 开源项目托管于 GitHub
+    </footer>
+
+    <script>
+      const REPO = "xinyi-cherry/heart";
+      const RELEASE_URL = `https://github.com/${REPO}/releases/latest`;
+      const API_URL = `https://api.github.com/repos/${REPO}/releases/latest`;
+      const TUTORIAL_VIDEO_URL = "https://github.com/xinyi-cherry/heart#手环设置";
+
+      document.getElementById("hero-video-link").href = TUTORIAL_VIDEO_URL;
+      document.getElementById("tutorial-video-card").href = TUTORIAL_VIDEO_URL;
+
+      async function wireReleaseLinks() {
+        try {
+          const response = await fetch(API_URL, { headers: { Accept: "application/vnd.github+json" } });
+          if (!response.ok) return;
+          const release = await response.json();
+          const assets = Array.isArray(release.assets) ? release.assets : [];
+          document.querySelectorAll(".download-link").forEach((link) => {
+            const platform = link.dataset.platform;
+            const asset = assets.find((item) => {
+              const name = String(item.name || "").toLowerCase();
+              return name.includes(platform) && name.endsWith(".zip");
+            });
+            link.href = asset?.browser_download_url || release.html_url || RELEASE_URL;
+          });
+        } catch (_error) {
+          document.querySelectorAll(".download-link").forEach((link) => {
+            link.href = RELEASE_URL;
+          });
+        }
+      }
+
+      wireReleaseLinks();
+    </script>
+  </body>
+</html>
