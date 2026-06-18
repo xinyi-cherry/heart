@@ -12,7 +12,6 @@ from PySide6.QtCore import QObject, QThread, QTimer, Qt, Signal
 from PySide6.QtGui import QColor, QFont
 from PySide6.QtWidgets import (
     QApplication,
-    QCheckBox,
     QFileDialog,
     QFrame,
     QGridLayout,
@@ -24,7 +23,7 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QMessageBox,
     QPushButton,
-    QSpinBox,
+    QAbstractItemView,
     QTableWidget,
     QTableWidgetItem,
     QTextEdit,
@@ -36,6 +35,8 @@ from PySide6.QtWidgets import (
 HR_SERVICE_UUID = "0000180d-0000-1000-8000-00805f9b34fb"
 HR_MEASUREMENT_UUID = "00002a37-0000-1000-8000-00805f9b34fb"
 APP_NAME = "Heart Rate Band Logger"
+AUTO_SCAN_INTERVAL_MS = 5000
+AUTO_SCAN_TIMEOUT_SECONDS = 1.2
 
 BAND_KEYWORDS = (
     "band",
@@ -103,12 +104,12 @@ def parse_heart_rate(data: bytearray) -> int:
     return int(data[1])
 
 
-def safe_write_line(path: str, line: str) -> None:
+def safe_write_text(path: str, text: str) -> None:
     folder = os.path.dirname(os.path.abspath(path))
     if folder:
         os.makedirs(folder, exist_ok=True)
-    with open(path, "a", encoding="utf-8") as file:
-        file.write(line)
+    with open(path, "w", encoding="utf-8") as file:
+        file.write(text)
         file.flush()
 
 
@@ -121,11 +122,12 @@ def default_output_file() -> str:
 
 class ScanWorker(QObject):
     found = Signal(object)
+    results_ready = Signal(object)
     status = Signal(str)
     finished = Signal()
     failed = Signal(str)
 
-    def __init__(self, timeout: int):
+    def __init__(self, timeout: float):
         super().__init__()
         self.timeout = timeout
 
@@ -138,7 +140,7 @@ class ScanWorker(QObject):
             self.finished.emit()
 
     async def _scan(self) -> None:
-        self.status.emit(f"正在扫描附近蓝牙设备，预计 {self.timeout} 秒...")
+        self.status.emit("正在扫描附近蓝牙设备...")
         discovered = await BleakScanner.discover(
             timeout=float(self.timeout),
             return_adv=True,
@@ -173,8 +175,7 @@ class ScanWorker(QObject):
             )
 
         results.sort(key=lambda item: (item.score, item.rssi), reverse=True)
-        for result in results:
-            self.found.emit(result)
+        self.results_ready.emit(results)
         self.status.emit(f"扫描完成，找到 {len(results)} 个设备。")
 
 
@@ -190,14 +191,12 @@ class HeartRateWorker(QObject):
         output_file: str,
         prefix: str,
         suffix: str,
-        include_timestamp: bool,
     ):
         super().__init__()
         self.device = device
         self.output_file = output_file
         self.prefix = prefix
         self.suffix = suffix
-        self.include_timestamp = include_timestamp
         self._stop_requested = False
         self._client: Optional[BleakClient] = None
 
@@ -235,13 +234,9 @@ class HeartRateWorker(QObject):
     def _handle_notify(self, _sender, data: bytearray) -> None:
         try:
             hr = parse_heart_rate(data)
-            timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
-            if self.include_timestamp:
-                body = f"{timestamp}, {hr} bpm"
-            else:
-                body = f"{hr}"
+            body = f"{hr}"
             line = f"{self.prefix}{body}{self.suffix}\n"
-            safe_write_line(self.output_file, line)
+            safe_write_text(self.output_file, line)
             self.heart_rate.emit(hr, line.rstrip("\n"))
         except Exception as exc:
             self.failed.emit(f"心率数据解析失败: {exc}")
@@ -258,12 +253,18 @@ class MainWindow(QMainWindow):
         self.hr_worker: Optional[HeartRateWorker] = None
         self.results: list[ScanResult] = []
         self.last_hr: Optional[int] = None
+        self.auto_scan_paused = False
         self._build_ui()
         self._apply_style()
 
         self.pulse_timer = QTimer(self)
         self.pulse_timer.timeout.connect(self._update_connection_badge)
         self.pulse_timer.start(1000)
+
+        self.auto_scan_timer = QTimer(self)
+        self.auto_scan_timer.timeout.connect(self.start_scan)
+        self.auto_scan_timer.start(AUTO_SCAN_INTERVAL_MS)
+        QTimer.singleShot(100, self.start_scan)
 
     def _build_ui(self) -> None:
         root = QWidget()
@@ -306,12 +307,10 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout(group)
         control = QHBoxLayout()
 
-        self.timeout_spin = QSpinBox()
-        self.timeout_spin.setRange(3, 30)
-        self.timeout_spin.setValue(10)
-        self.timeout_spin.setSuffix(" 秒")
-        self.scan_btn = QPushButton("扫描")
+        self.scan_btn = QPushButton("立即扫描")
         self.scan_btn.clicked.connect(self.start_scan)
+        self.auto_scan_btn = QPushButton("暂停自动刷新")
+        self.auto_scan_btn.clicked.connect(self.toggle_auto_scan)
         self.connect_btn = QPushButton("连接并记录")
         self.connect_btn.setEnabled(False)
         self.connect_btn.clicked.connect(self.start_recording)
@@ -319,26 +318,30 @@ class MainWindow(QMainWindow):
         self.stop_btn.setEnabled(False)
         self.stop_btn.clicked.connect(self.stop_recording)
 
-        control.addWidget(QLabel("扫描时长"))
-        control.addWidget(self.timeout_spin)
+        control.addWidget(QLabel("自动刷新：每 5 秒"))
         control.addStretch(1)
         control.addWidget(self.scan_btn)
+        control.addWidget(self.auto_scan_btn)
         control.addWidget(self.connect_btn)
         control.addWidget(self.stop_btn)
         layout.addLayout(control)
 
-        self.table = QTableWidget(0, 5)
-        self.table.setHorizontalHeaderLabels(["推荐", "名称", "地址", "RSSI", "服务"])
+        notice = QLabel("请先在手环或手表中打开心率广播功能，再选择设备连接。")
+        notice.setObjectName("Notice")
+        layout.addWidget(notice)
+
+        self.table = QTableWidget(0, 3)
+        self.table.setHorizontalHeaderLabels(["推荐", "名称", "地址"])
         self.table.verticalHeader().setVisible(False)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.table.setAlternatingRowColors(True)
         self.table.itemSelectionChanged.connect(self._selection_changed)
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
         layout.addWidget(self.table)
         return group
 
@@ -358,8 +361,6 @@ class MainWindow(QMainWindow):
         self.prefix_edit.setPlaceholderText("例如 HR=")
         self.suffix_edit = QLineEdit("")
         self.suffix_edit.setPlaceholderText("例如 ;")
-        self.timestamp_check = QCheckBox("写入时间戳")
-        self.timestamp_check.setChecked(True)
 
         layout.addWidget(QLabel("文本文件"), 0, 0)
         layout.addLayout(file_row, 0, 1)
@@ -367,18 +368,14 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.prefix_edit, 1, 1)
         layout.addWidget(QLabel("后缀"), 2, 0)
         layout.addWidget(self.suffix_edit, 2, 1)
-        layout.addWidget(self.timestamp_check, 3, 1)
 
-        hint = QLabel("输出示例会随设置变化。")
-        hint.setObjectName("Hint")
         self.preview_label = QLabel()
         self.preview_label.setObjectName("Preview")
-        layout.addWidget(hint, 4, 0, 1, 2)
-        layout.addWidget(self.preview_label, 5, 0, 1, 2)
+        layout.addWidget(QLabel("预览"), 3, 0)
+        layout.addWidget(self.preview_label, 3, 1)
 
         self.prefix_edit.textChanged.connect(self.update_preview)
         self.suffix_edit.textChanged.connect(self.update_preview)
-        self.timestamp_check.stateChanged.connect(self.update_preview)
         self.update_preview()
         return group
 
@@ -421,8 +418,15 @@ class MainWindow(QMainWindow):
                 font-size: 28px;
                 font-weight: 750;
             }
-            #Subtitle, #Hint {
+            #Subtitle, #Notice {
                 color: #657085;
+            }
+            #Notice {
+                background: #fff7ed;
+                border: 1px solid #fed7aa;
+                border-radius: 6px;
+                color: #9a3412;
+                padding: 8px 10px;
             }
             QGroupBox, #LivePanel {
                 background: #ffffff;
@@ -452,15 +456,49 @@ class MainWindow(QMainWindow):
             QPushButton:disabled {
                 background: #c6cedc;
             }
-            QLineEdit, QSpinBox, QTextEdit, QTableWidget {
+            QLineEdit, QTextEdit, QTableWidget {
                 background: #ffffff;
                 border: 1px solid #cfd7e6;
                 border-radius: 6px;
                 padding: 7px;
-                selection-background-color: #cfe0ff;
+                selection-background-color: #1f6fff;
+                selection-color: #ffffff;
             }
             QTableWidget {
                 gridline-color: #edf1f7;
+                alternate-background-color: #f8fafd;
+                outline: 0;
+            }
+            QTableWidget::item {
+                padding: 5px;
+                border: 0;
+            }
+            QTableWidget::item:selected {
+                background: #1f6fff;
+                color: #ffffff;
+            }
+            QScrollBar:vertical, QScrollBar:horizontal {
+                background: #f3f6fb;
+                border: 0;
+                margin: 0;
+                width: 10px;
+                height: 10px;
+            }
+            QScrollBar::handle:vertical, QScrollBar::handle:horizontal {
+                background: #b8c3d6;
+                border-radius: 5px;
+                min-height: 28px;
+                min-width: 28px;
+            }
+            QScrollBar::handle:vertical:hover, QScrollBar::handle:horizontal:hover {
+                background: #8fa0b8;
+            }
+            QScrollBar::add-line, QScrollBar::sub-line,
+            QScrollBar::add-page, QScrollBar::sub-page {
+                border: 0;
+                background: transparent;
+                width: 0;
+                height: 0;
             }
             QHeaderView::section {
                 background: #eef3fb;
@@ -478,19 +516,20 @@ class MainWindow(QMainWindow):
                 font-weight: 700;
             }
             #LivePanel {
-                background: #101828;
+                background: #ffffff;
+                border-left: 5px solid #22c55e;
             }
             #LiveLabel {
-                color: #b8c3d9;
+                color: #657085;
                 font-size: 16px;
             }
             #HeartRate {
-                color: #69f0ae;
+                color: #16a34a;
                 font-size: 76px;
                 font-weight: 800;
             }
             #Unit {
-                color: #d7deeb;
+                color: #657085;
                 font-size: 22px;
                 font-weight: 650;
             }
@@ -510,9 +549,7 @@ class MainWindow(QMainWindow):
         )
 
     def update_preview(self) -> None:
-        timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
-        body = f"{timestamp}, 72 bpm" if self.timestamp_check.isChecked() else "72"
-        self.preview_label.setText(f"{self.prefix_edit.text()}{body}{self.suffix_edit.text()}")
+        self.preview_label.setText(f"{self.prefix_edit.text()}72{self.suffix_edit.text()}")
 
     def choose_output_file(self) -> None:
         path, _ = QFileDialog.getSaveFileName(
@@ -525,26 +562,58 @@ class MainWindow(QMainWindow):
             self.file_edit.setText(path)
 
     def start_scan(self) -> None:
-        if self.scan_thread and self.scan_thread.isRunning():
+        if self._is_recording():
             return
-        self.results.clear()
-        self.table.setRowCount(0)
+        if self._thread_is_running(self.scan_thread):
+            return
         self.scan_btn.setEnabled(False)
         self.connect_btn.setEnabled(False)
         self._set_status("准备扫描...")
 
         self.scan_thread = QThread(self)
-        self.scan_worker = ScanWorker(self.timeout_spin.value())
+        self.scan_worker = ScanWorker(AUTO_SCAN_TIMEOUT_SECONDS)
         self.scan_worker.moveToThread(self.scan_thread)
         self.scan_thread.started.connect(self.scan_worker.run)
-        self.scan_worker.found.connect(self._add_scan_result)
+        self.scan_worker.results_ready.connect(self._replace_scan_results)
         self.scan_worker.status.connect(self._set_status)
         self.scan_worker.failed.connect(self._show_error)
         self.scan_worker.finished.connect(self.scan_thread.quit)
         self.scan_worker.finished.connect(self.scan_worker.deleteLater)
         self.scan_thread.finished.connect(self.scan_thread.deleteLater)
-        self.scan_thread.finished.connect(lambda: self.scan_btn.setEnabled(True))
+        self.scan_thread.finished.connect(self._on_scan_finished)
         self.scan_thread.start()
+
+    def toggle_auto_scan(self) -> None:
+        if self._is_recording():
+            return
+        self.auto_scan_paused = not self.auto_scan_paused
+        if self.auto_scan_paused:
+            self.auto_scan_timer.stop()
+            self.auto_scan_btn.setText("恢复自动刷新")
+            self._set_status("已暂停自动刷新。")
+        else:
+            self.auto_scan_timer.start(AUTO_SCAN_INTERVAL_MS)
+            self.auto_scan_btn.setText("暂停自动刷新")
+            self._set_status("已恢复自动刷新。")
+            self.start_scan()
+
+    def _on_scan_finished(self) -> None:
+        self.scan_btn.setEnabled(not self._is_recording())
+        self.scan_thread = None
+        self.scan_worker = None
+        self._selection_changed()
+
+    def _replace_scan_results(self, results: list[ScanResult]) -> None:
+        previous = self.selected_result()
+        previous_address = previous.address if previous else ""
+        self.results.clear()
+        self.table.setRowCount(0)
+        for result in results:
+            self._add_scan_result(result)
+        if previous_address:
+            self._select_address(previous_address)
+        elif self.table.rowCount():
+            self.table.selectRow(0)
 
     def _add_scan_result(self, result: ScanResult) -> None:
         self.results.append(result)
@@ -555,8 +624,6 @@ class MainWindow(QMainWindow):
             f"{recommendation} ({result.score})",
             result.name,
             result.address,
-            str(result.rssi),
-            result.services or "-",
         ]
         for column, value in enumerate(values):
             item = QTableWidgetItem(value)
@@ -566,7 +633,13 @@ class MainWindow(QMainWindow):
                 elif result.score >= 70:
                     item.setBackground(QColor("#fef9c3"))
             self.table.setItem(row, column, item)
-        if row == 0:
+
+    def _select_address(self, address: str) -> None:
+        for row, result in enumerate(self.results):
+            if result.address == address:
+                self.table.selectRow(row)
+                return
+        if self.table.rowCount():
             self.table.selectRow(0)
 
     def _selection_changed(self) -> None:
@@ -591,13 +664,14 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "输出文件为空", "请选择或填写一个文本输出文件。")
             return
 
+        self.auto_scan_timer.stop()
+        self.last_hr = None
         self.hr_thread = QThread(self)
         self.hr_worker = HeartRateWorker(
             result.device,
             output_file,
             self.prefix_edit.text(),
             self.suffix_edit.text(),
-            self.timestamp_check.isChecked(),
         )
         self.hr_worker.moveToThread(self.hr_thread)
         self.hr_thread.started.connect(self.hr_worker.run)
@@ -611,6 +685,7 @@ class MainWindow(QMainWindow):
 
         self.connect_btn.setEnabled(False)
         self.scan_btn.setEnabled(False)
+        self.auto_scan_btn.setEnabled(False)
         self.stop_btn.setEnabled(True)
         self.badge.setText("连接中")
         self.badge.setStyleSheet("background:#fff7cc;color:#775f00;")
@@ -632,18 +707,29 @@ class MainWindow(QMainWindow):
     def _on_disconnected(self) -> None:
         self.stop_btn.setEnabled(False)
         self.scan_btn.setEnabled(True)
+        self.auto_scan_btn.setEnabled(True)
         self.connect_btn.setEnabled(bool(self.table.selectionModel().selectedRows()))
         self.badge.setText("未连接")
         self.badge.setStyleSheet("")
         self.hr_worker = None
         self.hr_thread = None
+        if not self.auto_scan_paused and not self.auto_scan_timer.isActive():
+            self.auto_scan_timer.start(AUTO_SCAN_INTERVAL_MS)
 
     def _update_connection_badge(self) -> None:
         if self._is_recording() and self.last_hr is None:
             self.badge.setText("等待数据")
 
     def _is_recording(self) -> bool:
-        return bool(self.hr_thread and self.hr_thread.isRunning())
+        return self._thread_is_running(self.hr_thread)
+
+    def _thread_is_running(self, thread: Optional[QThread]) -> bool:
+        if not thread:
+            return False
+        try:
+            return thread.isRunning()
+        except RuntimeError:
+            return False
 
     def _set_status(self, text: str) -> None:
         self.status_label.setText(text)
@@ -659,8 +745,9 @@ class MainWindow(QMainWindow):
             self._append_log("提示: 请确认手环已开启心率广播/第三方设备连接。")
 
     def closeEvent(self, event) -> None:
+        self.auto_scan_timer.stop()
         self.stop_recording()
-        if self.hr_thread and self.hr_thread.isRunning():
+        if self._thread_is_running(self.hr_thread):
             self.hr_thread.quit()
             self.hr_thread.wait(2000)
         event.accept()
