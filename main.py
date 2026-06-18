@@ -8,7 +8,7 @@ from typing import Optional
 
 from bleak import BleakClient, BleakScanner
 from bleak.backends.device import BLEDevice
-from PySide6.QtCore import QObject, QThread, QTimer, Qt, Signal
+from PySide6.QtCore import QObject, QThread, QTimer, Qt, Signal, Slot
 from PySide6.QtGui import QColor, QFont, QIcon, QPainter, QPainterPath, QPen, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
@@ -111,6 +111,10 @@ def safe_write_text(path: str, text: str) -> None:
     with open(path, "w", encoding="utf-8") as file:
         file.write(text)
         file.flush()
+
+
+def format_heart_rate_text(heart_rate: int, prefix: str, suffix: str) -> str:
+    return f"{prefix}{heart_rate}{suffix}"
 
 
 def default_output_file() -> str:
@@ -239,6 +243,11 @@ class HeartRateWorker(QObject):
     def stop(self) -> None:
         self._stop_requested = True
 
+    @Slot(str, str)
+    def set_output_format(self, prefix: str, suffix: str) -> None:
+        self.prefix = prefix
+        self.suffix = suffix
+
     def run(self) -> None:
         try:
             asyncio.run(self._connect_and_listen())
@@ -270,8 +279,7 @@ class HeartRateWorker(QObject):
     def _handle_notify(self, _sender, data: bytearray) -> None:
         try:
             hr = parse_heart_rate(data)
-            body = f"{hr}"
-            line = f"{self.prefix}{body}{self.suffix}\n"
+            line = f"{format_heart_rate_text(hr, self.prefix, self.suffix)}\n"
             safe_write_text(self.output_file, line)
             self.heart_rate.emit(hr, line.rstrip("\n"))
         except Exception as exc:
@@ -279,6 +287,8 @@ class HeartRateWorker(QObject):
 
 
 class MainWindow(QMainWindow):
+    output_format_changed = Signal(str, str)
+
     def __init__(self):
         super().__init__()
         self.setWindowTitle(APP_NAME)
@@ -411,8 +421,8 @@ class MainWindow(QMainWindow):
         layout.addWidget(QLabel("输出预览"), 3, 0)
         layout.addWidget(self.preview_label, 3, 1)
 
-        self.prefix_edit.textChanged.connect(self.update_preview)
-        self.suffix_edit.textChanged.connect(self.update_preview)
+        self.prefix_edit.textChanged.connect(lambda _text: self._on_output_format_changed())
+        self.suffix_edit.textChanged.connect(lambda _text: self._on_output_format_changed())
         self.update_preview()
         return group
 
@@ -586,7 +596,13 @@ class MainWindow(QMainWindow):
         )
 
     def update_preview(self) -> None:
-        self.preview_label.setText(f"{self.prefix_edit.text()}72{self.suffix_edit.text()}")
+        self.preview_label.setText(
+            format_heart_rate_text(72, self.prefix_edit.text(), self.suffix_edit.text())
+        )
+
+    def _on_output_format_changed(self) -> None:
+        self.update_preview()
+        self.output_format_changed.emit(self.prefix_edit.text(), self.suffix_edit.text())
 
     def choose_output_file(self) -> None:
         path, _ = QFileDialog.getSaveFileName(
@@ -711,6 +727,7 @@ class MainWindow(QMainWindow):
             self.suffix_edit.text(),
         )
         self.hr_worker.moveToThread(self.hr_thread)
+        self.output_format_changed.connect(self.hr_worker.set_output_format)
         self.hr_thread.started.connect(self.hr_worker.run)
         self.hr_worker.status.connect(self._set_status)
         self.hr_worker.heart_rate.connect(self._on_heart_rate)
