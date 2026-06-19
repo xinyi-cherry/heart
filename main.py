@@ -1,5 +1,6 @@
 import asyncio
 import os
+import platform
 import sys
 import time
 from dataclasses import dataclass
@@ -35,8 +36,9 @@ from PySide6.QtWidgets import (
 HR_SERVICE_UUID = "0000180d-0000-1000-8000-00805f9b34fb"
 HR_MEASUREMENT_UUID = "00002a37-0000-1000-8000-00805f9b34fb"
 APP_NAME = "心率助手"
-AUTO_SCAN_INTERVAL_MS = 5000
-AUTO_SCAN_TIMEOUT_SECONDS = 1.2
+IS_MACOS = platform.system() == "Darwin"
+AUTO_SCAN_INTERVAL_MS = 10000 if IS_MACOS else 5000
+AUTO_SCAN_TIMEOUT_SECONDS = 6.0 if IS_MACOS else 1.8
 
 BAND_KEYWORDS = (
     "band",
@@ -180,7 +182,7 @@ class ScanWorker(QObject):
             self.finished.emit()
 
     async def _scan(self) -> None:
-        self.status.emit("正在扫描附近蓝牙设备...")
+        self.status.emit(f"正在扫描附近蓝牙设备，预计 {self.timeout:g} 秒...")
         discovered = await BleakScanner.discover(
             timeout=float(self.timeout),
             return_adv=True,
@@ -365,7 +367,8 @@ class MainWindow(QMainWindow):
         self.stop_btn.setEnabled(False)
         self.stop_btn.clicked.connect(self.stop_recording)
 
-        control.addWidget(QLabel("自动刷新：每 5 秒"))
+        refresh_seconds = AUTO_SCAN_INTERVAL_MS // 1000
+        control.addWidget(QLabel(f"自动刷新：每 {refresh_seconds} 秒"))
         control.addStretch(1)
         control.addWidget(self.scan_btn)
         control.addWidget(self.auto_scan_btn)
@@ -373,12 +376,15 @@ class MainWindow(QMainWindow):
         control.addWidget(self.stop_btn)
         layout.addLayout(control)
 
-        notice = QLabel("请先在手环或手表中打开心率广播功能，再选择设备连接。")
+        notice_text = "请先在手环或手表中打开心率广播功能，再选择设备连接。"
+        if IS_MACOS:
+            notice_text += " macOS 会显示系统分配的设备 UUID，不会暴露真实 MAC 地址。"
+        notice = QLabel(notice_text)
         notice.setObjectName("Notice")
         layout.addWidget(notice)
 
-        self.table = QTableWidget(0, 3)
-        self.table.setHorizontalHeaderLabels(["推荐", "名称", "地址"])
+        self.table = QTableWidget(0, 4)
+        self.table.setHorizontalHeaderLabels(["推荐", "名称", "设备标识", "信号"])
         self.table.verticalHeader().setVisible(False)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
@@ -389,6 +395,7 @@ class MainWindow(QMainWindow):
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
         layout.addWidget(self.table)
         return group
 
@@ -677,6 +684,7 @@ class MainWindow(QMainWindow):
             f"{recommendation} ({result.score})",
             result.name,
             result.address,
+            str(result.rssi),
         ]
         for column, value in enumerate(values):
             item = QTableWidgetItem(value)

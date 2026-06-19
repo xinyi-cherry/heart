@@ -15,7 +15,9 @@ APP_NAME = "HeartRateBandLogger"
 
 def run(command: list[str]) -> None:
     print("+", " ".join(command), flush=True)
-    subprocess.run(command, cwd=ROOT, check=True)
+    env = os.environ.copy()
+    env.setdefault("PYINSTALLER_CONFIG_DIR", str(ROOT / ".pyinstaller-cache"))
+    subprocess.run(command, cwd=ROOT, env=env, check=True)
 
 
 def zip_dir(source: Path, target: Path) -> None:

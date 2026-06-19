@@ -24,7 +24,8 @@
 推荐通过 GitHub Actions 构建三平台发布包。手动运行 `Build desktop releases` workflow 时会生成构建 artifact；推送 `v*` tag 时会自动创建 GitHub Release，并把三平台 zip 上传为 release assets。
 
 - `HeartRateBandLogger-windows-*.zip`
-- `HeartRateBandLogger-darwin-*.zip`
+- `HeartRateBandLogger-darwin-arm64.zip`: Apple Silicon Mac
+- `HeartRateBandLogger-darwin-x86_64.zip`: Intel Mac
 - `HeartRateBandLogger-linux-*.zip`
 
 这些 zip 里包含可执行程序和运行时依赖，用户解压后双击运行。
@@ -68,7 +69,7 @@ python main.py
 
 ## 平台注意事项
 
-- macOS: 首次运行时需要允许 App 使用蓝牙。打包配置已加入蓝牙权限说明，但正式分发最好再做 Apple Developer 签名和 notarization。
+- macOS: 首次运行时需要允许 App 使用蓝牙。Apple Silicon Mac 下载 `darwin-arm64`，Intel Mac 下载 `darwin-x86_64`。macOS 的 CoreBluetooth 不会向普通应用暴露真实 MAC 地址，设备标识显示为系统分配的 UUID 是正常现象。当前包未做 Apple Developer notarization，如果系统提示无法验证开发者，可以右键 App 选择“打开”；正式公开分发建议接入 Apple Developer 签名和 notarization。
 - Windows: 用户可能需要在系统设置中打开蓝牙；建议用压缩包或后续接入安装器发布。
 - Linux: 依赖系统 BlueZ 蓝牙栈，用户账户可能需要蓝牙权限。不同发行版对 BLE 权限策略可能不同。
 
