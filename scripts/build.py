@@ -23,6 +23,9 @@ def run(command: list[str]) -> None:
 def zip_dir(source: Path, target: Path) -> None:
     if target.exists():
         target.unlink()
+    if platform.system() == "Darwin":
+        run(["ditto", "-c", "-k", "--sequesterRsrc", "--keepParent", str(source), str(target)])
+        return
     with zipfile.ZipFile(target, "w", zipfile.ZIP_DEFLATED) as archive:
         for path in source.rglob("*"):
             archive.write(path, path.relative_to(source.parent))

@@ -73,6 +73,14 @@ python main.py
 - Windows: 用户可能需要在系统设置中打开蓝牙；建议用压缩包或后续接入安装器发布。
 - Linux: 依赖系统 BlueZ 蓝牙栈，用户账户可能需要蓝牙权限。不同发行版对 BLE 权限策略可能不同。
 
+如果 macOS 提示 App 已损坏，请先确认使用的是最新构建产物。旧构建曾使用通用 zip 方式压缩 `.app`，可能破坏 macOS bundle 内的符号链接；当前构建已改用 `ditto`。如果仍因未公证被 Gatekeeper 拦截，临时测试可执行：
+
+```bash
+xattr -dr com.apple.quarantine /Applications/HeartRateBandLogger.app
+```
+
+正式公开分发应使用 Apple Developer 证书签名并 notarize。
+
 ## 手环设置
 
 很多手环默认不会持续广播标准心率数据。连接前请在官方 App 中开启类似“心率广播”“蓝牙心率广播”“第三方设备连接”的选项，必要时手动开始运动或心率测量。
